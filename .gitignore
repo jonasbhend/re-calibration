@@ -1,7 +1,6 @@
 old_versions
 .Rproj.user
 .Rhistory
-*.Rproj
 *.docx
 *.pdf
 *.html
