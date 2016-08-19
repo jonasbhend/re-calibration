@@ -5,3 +5,6 @@ old_versions
 *.docx
 *.pdf
 *.html
+figure
+data
+grids

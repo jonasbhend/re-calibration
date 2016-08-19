@@ -3,31 +3,59 @@ title: "Best practice for the calibration of seasonal forecasts of climate indic
 author: "Jonas Bhend, Mark Liniger"
 date: "July 29, 2016"
 output: 
-  bookdown::word_document2
-  
+  bookdown::html_document2
+
+bibliography: ["bibliography.bib"]
+biblio-style: "apalike"
+link-citations: true
 ---
 
 ```{r setup, include=FALSE}
-library(knitr)
-knitr::opts_chunk$set(echo = FALSE)
+
+suppressPackageStartupMessages({
+  library(knitr)
+  library(RColorBrewer)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(ncdf4)
+  library(maps)
+  library(DiagrammeR)
+  
+  tmp <- sapply(list.files("src", pattern='.R', full.names=TRUE), source)
+  rm(tmp)
+  
+})
+
+knitr::opts_chunk$set(echo = FALSE, 
+                      fig.path="figure/re-calibration_")
+
+
+relabeller <- as_labeller(c(
+  `05` = "Summer (JJA, May init.)",
+  `11` = "Winter (DJF, Nov. init.)",
+  `none` = "no calibration",
+  `fastqqmap-forward` = "quantile mapping",
+  `smooth-forward` = "de-biasing",
+  `comb-forward` = "all",
+  `smoothRecal-forward` = "de-biasing with\ndaily recalibration",
+  `combRecal-forward` = "all with daily\nrecalibration",
+  `EnsCorr` = "correlation",
+  `FairCrpss` = "transformed CRPSS",
+  `FairSprErr` = "spread to error ratio",
+  `FALSE` = 'without recalibration of index',
+  `TRUE` = 'with seasonal recalibration'
+))
+
+
+load("data/all_scores.Rdata")
+load("data/points.Rdata")
+lola.points <- df.out %>% group_by(name) %>%
+  summarize(lon=median(lon), lat=median(lat)) %>% ungroup()
 ```
 
 
-# Discussion points / Modifications
- 
-* Boxplots weighted by grid-box area
-* Map plots instead of boxplots to emphasise correspondence (dissimilarity) in changes of spatial patterns (i.e. is it always the same points that show skill?)
-* Title, scope, emphasis: Is mean debiasing enough for seasonal forecasts of climate indices? What is the best practice for the calibration of seasonal forecasts of climate indices?
-* Are results easier to interpret when focusing on areas with skill (e.g. tropics and subtropics, ocean, etc.) 
-
-Do not explicitly show comparison of verification strategies apart from conclusions (i.e. what does this imply for actual forecasts of indices, tas and CDD)
-
-# Questions
-* Does the choice of daily bias correction method affect the skill of seasonal forecasts?
-* Which bias correction method is the best (i.e. produces the most skillful forecast)?
-* Is recalibration of the daily series necessary / sufficient?
-
-# Abstract
+# Abstract {-}
 Climate information indices (CIIs) represent a simple and easy-to-implement way to describe impact-relevant quantities derived from basic meteorological variables such as rainfall or temperature. CIIs are usually aggregated quantities derived from daily time series of said underlying variables. The computation of CIIs often involves non-linear transfer functions (e.g. based on thresholds). This poses challenges in a seasonal forecasting context where such indices have to be derived from daily time series of forecasting systems with sometimes considerable systematic errors. Here we analyze how various calibration and recalibration methods applied to the underlying meteorological variable affect forecast skill of CII forecasts. In addition, we also recalibrate the seasonal CII forecasts and contrast the direct approach (i.e. daily (re)calibration only) and the two step approach (i.e. daily calibration and recalibration of seasonal quantities).
 
 
@@ -40,37 +68,59 @@ In addition to being unbiased, we also want probabilistic forecasts to be reliab
 Here we analyze the skill of seasonal CII forecasts derived from calibrated daily time series. We contrast calibration schemes on the daily input data (here temperature) with increasing complexity and also analyze the effect of an additional recalibration of the seasonally aggregated CII forecasts. In order to better structure the discussion and in order to avoid the pitfall that often CIIs are only relevant in some parts of the world (e.g. frost days), we analyze synthetic generalized CIIs that are not computed with respect to an absolute and spatially uniform threshold, but with respect to a percentile of the long-term observed climatology.
 
 # Forecast data and verifying observations
-We use long-range forecasts for daily temperature from the European Centre for Medium-range Weather Forecasting’s (ECMWF) System 4 seasonal forecasting model (Molteni et al., 2011). The ECMWF System 4 is a fully coupled ocean-atmosphere dynamical forecasting system. The atmospheric component of ECMWF System 4 corresponds to an earlier version of ECMWF’s operational medium-range weather forecasting model. The atmospheric model is a spectral model run at T255 horizontal resolution (approximately 0.7 degree) with 91 vertical levels. The ocean model (NEMO) is run at 1 degree horizontal resolution and 42 vertical levels with a refinement in resolution in equatorial regions. 
+We use long-range forecasts for daily temperature from the European Centre for Medium-range Weather Forecasting’s (ECMWF) System 4 seasonal forecasting model [@Molteni2011]. The ECMWF System 4 is a fully coupled ocean-atmosphere dynamical forecasting system. The atmospheric component of ECMWF System 4 corresponds to an earlier version of ECMWF’s operational medium-range weather forecasting model. The atmospheric model is a spectral model run at T255 horizontal resolution (approximately 0.7 degree) with 91 vertical levels. The ocean model (NEMO) is run at 1 degree horizontal resolution and 42 vertical levels with a refinement in resolution in equatorial regions. 
 
 The real-time forecasts of System 4 are issued every month for the coming 215 days (approximately 7 months) and consist of 51 members initialized at the beginning of the month. Historical re-forecasts (hindcasts) using System 4 are available since 1981. We analyze these hindcasts for the boreal winter (DJF) and summer (JJA) seasons following the initialization dates in November and May respectively. 
 
-Indices derived from hindcasts from 1981 to 2013/14 are compared to indices derived from daily temperature time series of the ERA Interim reanalysis (Dee et al., 2011). In contrast to station based observations, the ERA Interim suffers less from representativity and homogeneity errors. On the other hand, systematic model errors of the ERA Interim system will affect the representation of temperature in the reanalysis.
+Indices derived from hindcasts from 1981 to 2013/14 are compared to indices derived from daily temperature time series of the ERA Interim reanalysis [@Dee2011]. In contrast to station based observations, the ERA Interim suffers less from representativity and homogeneity errors. On the other hand, systematic model errors of the ERA Interim system will affect the representation of temperature in the reanalysis.
 
 Previous to the analysis, we have interpolated the daily seasonal forecast and reanalysis data on a common 2x2 degree latitude longitude grid. 
 
 # Climate information indices
 We compute a set of simple climate information indices (CIIs) derived from daily temperature time series. These CIIs include mean seasonal temperature (tas), seasonal mean inter-diurnal temperature variability (ITV), and a set of seasonally accumulated departures above (below) a given threshold. ITV and the threshold exceedance indices are shortly introduced in the following.
 
-The inter-diurnal temperature variability (ITV) is computed following Cattiaux et al. (2015) where ITV is defined as the mean absolute daily temperature difference. Threshold exceedances are computed relative to percentiles of the daily temperature distribution from the ERA Interim reanalysis. The percentiles are computed using a 31-day moving window centered about the day of year of interest. Based on the observed percentile threshold, we compute accumulated threshold exceedances for the verifying observations and the (calibrated) daily forecast time series. In boreal summer (JJA) we compute accumulated exceedances of the 90th, 95th and 98th daily percentiles (denoted as DD10, DD05 and DD02). In contrast, we compute accumulated temperature deviations below the 10th, 5th and 2nd percentile in boreal winter (DJF, also denoted as DD10, DD05, and DD02). These accumulated temperature deviations above (below) a pre-specified threshold are expected to behave very similarly to the traditional degree days that are widely used in the impact community (e.g. Christenson, Manz, & Gyalistras, 2006; Schlenker, Hanemann, & Fisher, 2007). Forecasts of degree days based on absolute thresholds, however, are trivial or difficult to interpret in regions where the threshold is never or only very rarely exceeded. Our indices of accumulated threshold exceedances, on the other hand, are relevant and applicable globally due to their definition relative to the local climatology.
+The inter-diurnal temperature variability (ITV) is computed following @Cattiaux2015 where ITV is defined as the mean absolute daily temperature difference. Threshold exceedances are computed relative to percentiles of the daily temperature distribution from the ERA Interim reanalysis. The percentiles are computed using a 31-day moving window centered about the day of year of interest. Based on the observed percentile threshold, we compute accumulated threshold exceedances for the verifying observations and the (calibrated) daily forecast time series. In boreal summer (JJA) we compute accumulated exceedances of the 90th, 95th and 98th daily percentiles (denoted as DD10, DD05 and DD02). In contrast, we compute accumulated temperature deviations below the 10th, 5th and 2nd percentile in boreal winter (DJF, also denoted as DD10, DD05, and DD02). These accumulated temperature deviations above (below) a pre-specified threshold are expected to behave very similarly to the traditional degree days that are widely used in the impact community [@Christenson2006 @Schlenker2007]. Forecasts of degree days based on absolute thresholds, however, are trivial or difficult to interpret in regions where the threshold is never or only very rarely exceeded. Our indices of accumulated threshold exceedances, on the other hand, are relevant and applicable globally due to their definition relative to the local climatology.
 
 # Calibration methods
 We compare variants of a regression-based calibration approach with a quantile mapping approach. While the regression approach allows us to explicitly recalibrate the ensemble spread to produce reliable predictions. While the ensemble spread may be affected by quantile mapping, on the other hand, explicit recalibration of ensemble predictions is not possible with quantile mapping.
 
 ## Quantile mapping
-In addition to the regression-based calibration and recalibration approaches, we also use quantile mapping (Panofsky & Brier, 1968) to calibrate the daily temperature series. We apply the quantile correction using a 31-day window centred on the day of  interest to account for the seasonal cycle and lead-time dependence of model errors as in Themeßl et al. (2012)  and Wilcke et al. (Wilcke, Mendlik, & Gobiet, 2013). 
+In addition to the regression-based calibration and recalibration approaches, we also use quantile mapping [@Panofsky1968] to calibrate the daily temperature series. We apply the quantile correction using a 31-day window centred on the day of  interest to account for the seasonal cycle and lead-time dependence of model errors as in @Themeßl2011 and @Wilcke2013. 
 
 ## Calibration in a linear regression framework
 Under a linear regression framework, we perform the calibration of probabilistic ensemble forecasts in two steps: in the first step, the signal calibration, the mean squared error of the deterministic forecast given by the ensemble mean is minimized and in the second step, the recalibration, the ensemble spread is adjusted in order to produce reliable forecasts.
 Given $n$ re-forecasts with m ensemble members for $l$ lead times $f_{i,j,k}$ where $i$, $j$, $k$ denote the lead time, forecast, and ensemble member respectively, and given $l \times n$ verifying observations $o_{i,j}$, our linear model for calibration can be expressed as follows.
 
-$$g_{i,j,k} = \bar{o_i} + \alpha_i \tilde{f}''_{i,j} + \beta_i j' + \gamma_i f'_{i,j,k}$$
+$$
+g_{i,j,k} = \bar{o_i} + \alpha_i \tilde{f}''_{i,j} + \beta_i j' + \gamma_i f'_{i,j,k}
+\label{eq:linmod}
+$$
 
-$g_{i,j,k}$ is the calibrated forecast for lead time $i$, forecast $j$, and ensemble member $k$. The bar, tilde, and ticks denote the lead time dependent climatology, the ensemble mean, and anomalies respectively, such that $\bar{o_i} \sum_{i=1}^n{\sum_j o_{i,j}}$ is the lead time dependent observed climatology, $\tilde{f}'_{i,j} = \tilde{f}_{i,j} - \bar{f_i} = \frac{1}{m} \sum_k f_{i,j,k} - \frac{1}{n m} \sum_k{\sum_j f_{i,j,k}}$ are the ensemble mean anomalies from the model climatology at lead time $i$, $j'$ are anomalies of the forecast index or forecast year, and $f'_{i,j,k} = f_{i,j,k} - \tilde{f}_{i,j} = f_{i,j,k} - \frac{1}{m} \sum_k f_{i,j,k}$ are the ensemble anomalies from the ensemble mean at lead time $i$ and for forecast $j$. The lead time dependent parameters $\alpha_i$, $\beta_i$, and $\gamma_i$ have to be estimated.
+$g_{i,j,k}$ is the calibrated forecast for lead time $i$, forecast $j$, and ensemble member $k$. The bar, tilde, and ticks denote the lead time dependent climatology, the ensemble mean, and anomalies respectively, such that 
+$$
+\bar{o_i} = \sum_{i=1}^n{\sum_j o_{i,j}}
+\label{eq:obar}
+$$
+
+is the lead time dependent observed climatology, 
+
+$$
+\tilde{f}'_{i,j} = \tilde{f}_{i,j} - \bar{f_i} = \frac{1}{m} \sum_k f_{i,j,k} - \frac{1}{n m} \sum_k{\sum_j f_{i,j,k}}
+\label{eq:ftilde}
+$$
+
+are the ensemble mean anomalies from the model climatology at lead time $i$, $j'$ are anomalies of the forecast index or forecast year, and 
+
+$$ f'_{i,j,k} = f_{i,j,k} - \tilde{f}_{i,j} = f_{i,j,k} - \frac{1}{m} \sum_k f_{i,j,k}
+\label{eq:ftick}
+$$
+
+are the ensemble anomalies from the ensemble mean at lead time $i$ and for forecast $j$. The lead time dependent parameters $\alpha_i$, $\beta_i$, and $\gamma_i$ have to be estimated.
 
 This linear model framework for forecast calibration allows us to explore a variety of calibration methods with increasing complexity. The variants of the calibration methods analyzed in this study are summarized in Table 1.
 
 
-```{r, regression}
+```{r regression}
 df <- data.frame(c('debias', 'debiasRecal', 'trend', 'trendRecal', 'conditional', 'conditionalRecal', 'all', 'allRecal'), 
                  rep(c(1,'$\\hat{\\alpha}_i$'), each=4),
                  rep(c(0, '$\\hat{\\beta}_i$'), each=2, length=8),
@@ -80,26 +130,29 @@ kable(df, booktap=TRUE, caption="Calibration methods used in this study. Paramet
 ```
 
 ### Signal calibration
-Following Mahlstein et al. (2015) we apply a local linear regression smoothing on both the lead time dependent observation and model climatologies ($\bar{o_i}$ and $\bar{f_i} respectively). 
+Following @Mahlstein2015 we apply a local linear regression smoothing on both the lead time dependent observation and model climatologies ($\bar{o_i}$ and $\bar{f_i}$ respectively). 
 
 The parameters for the signal calibration, i.e. $\alpha_i$ and $\beta_i$, are estimated using ordinary least squares. Thereby, the root mean squared error of the deterministic forecast given by the ensemble mean is minimized. As the sample of re-forecast observation pairs is fairly limited and the estimates for the parameters are affected by considerable sampling uncertainty, we do not estimate the parameters for each lead time separately. Instead we estimate the parameters jointly for all lead times and allow the parameters to vary smoothly across lead times. This is implemented through interaction terms with a third-order polynomial on the lead time and also with interactions with a decaying exponential with e-folding time of 5 days to represent the initial shock early in the simulation. The latter interaction does not affect the calibration during the lead months 2-4 which are analyzed here, but helps to improve the fit early in the forecast.
 
-$$ o_{i,j} = \bar{o_i} + (\alpha_0 + \alpha_1 i' + \alpha_2 i'^2 + \alpha_3 i'^3 + \alpha_4 \exp(-i/5)) \tilde{f}'_{i,j} + (\beta_0 + \beta_1 i' + \beta_2 i'^2 + \beta_3 i'^3 + \beta_4 \exp(-i/5)) j' + \varepsilon_i$$
+$$ 
+o_{i,j} = \bar{o_i} + (\alpha_0 + \alpha_1 i' + \alpha_2 i'^2 + \alpha_3 i'^3 + \alpha_4 \exp(-i/5)) \tilde{f}'_{i,j} + (\beta_0 + \beta_1 i' + \beta_2 i'^2 + \beta_3 i'^3 + \beta_4 \exp(-i/5)) j' + \varepsilon_i
+\label{eq:sigcal}
+$$
 
-The underlying regression assumption that residuals are identically and independently distributed is clearly violated due to auto-correlation and heteroscedasticity across lead times. Also the ensemble mean forecast anomalies are not completely noise free due to the limited ensemble size leading to a negative bias in the regression estimates (Allen & Stott, 2003)[BJ3]. 
+The underlying regression assumption that residuals are identically and independently distributed is clearly violated due to auto-correlation and heteroscedasticity across lead times. Also the ensemble mean forecast anomalies are not completely noise free due to the limited ensemble size leading to a negative bias in the regression estimates [@Allen2003]. 
 
-Using maximum likelihood estimation on the above regression equations is equivalent to minimizing the ignorance score on the training data as shown by Gneiting et al. (2005). In their study, Gneiting et al. find that fitting regression-based calibration methods minimizing the continuous ranked probability score produce sharper forecasts that are better calibrated. Such an approach, however, requires us to find the coefficients through numerical optimization rather than the analytic relationship available for maximum likelihood estimation. In the interest of computational tractability, we use maximum likelihood estimation despite its known limitations.
+Using maximum likelihood estimation on the above regression equations is equivalent to minimizing the ignorance score on the training data as shown by @Gneiting2005. In their study, Gneiting *et al.* find that fitting regression-based calibration methods minimizing the continuous ranked probability score produce sharper forecasts that are better calibrated. Such an approach, however, requires us to find the coefficients through numerical optimization rather than the analytic relationship available for maximum likelihood estimation. In the interest of computational tractability, we use maximum likelihood estimation despite its known limitations.
 
 ### Daily recalibration
-In addition to signal calibration, we also adjust the ensemble spread to produce reliable forecasts. A necessary condition for reliability is given if the mean ensemble standard deviation (the ensemble spread) equals the root mean squared difference between the ensemble mean forecast and the verifying observations (Weigel, Liniger, & Appenzeller, 2009).  
+In addition to signal calibration, we also adjust the ensemble spread to produce reliable forecasts. A necessary condition for reliability is given if the mean ensemble standard deviation (the ensemble spread) equals the root mean squared difference between the ensemble mean forecast and the verifying observations [@Weigel2009a].  
 
 We estimate the mean ensemble spread and the standard deviation of the observed residuals for each lead time separately. To minimize sampling uncertainty and spurious corrections, we then smooth the observed residual standard deviation and the ensemble spread using local linear regression. We fit the local linear regression on the log-transformed standard deviation and lead times to guarantee positive definite standard deviations and to allow for more strongly varying estimates early in the forecast and more smoothly changing standard deviations later on. The coefficient for ensemble spread inflation (shrinkage), $\gamma_i$, is then estimated using the smoothed standard deviations.
 
-As shown in (1), the recalibration does not affect the spread-skill relationship, i.e. the ensemble spread is simply rescaled but sharp forecasts will remain sharper than dispersive forecasts. This is different to the ensemble modelling output statistics (EMOS) approach as proposed by Gneiting et al. (2005), with which the spread-skill relationship of the forecast can be altered as part of the calibration.
+As shown in (1), the recalibration does not affect the spread-skill relationship, i.e. the ensemble spread is simply rescaled but sharp forecasts will remain sharper than dispersive forecasts. This is different to the ensemble modelling output statistics (EMOS) approach as proposed by @Gneiting2005, with which the spread-skill relationship of the forecast can be altered as part of the calibration.
 
 
 ## Climate conserving recalibration on seasonal indices
-In addition, we also analyze the effect of an additional recalibration of the seasonally aggregated CII forecasts. We use the climate conserving recalibration (CCR) as proposed by Weigel et al. (2009). The CCR can be expressed in the framework of linear regression introduced above as well (see appendix).  In contrast to the daily calibration methods, we treat lead-time dependency implicitly by applying the CCR for each lead time separately. The CCR for forecast $j$ and ensemble member $k$ can thus be formulated as follows:
+In addition, we also analyze the effect of an additional recalibration of the seasonally aggregated CII forecasts. We use the climate conserving recalibration (CCR) as proposed by @Weigel2009a. The CCR can be expressed in the framework of linear regression introduced above as well (see appendix).  In contrast to the daily calibration methods, we treat lead-time dependency implicitly by applying the CCR for each lead time separately. The CCR for forecast $j$ and ensemble member $k$ can thus be formulated as follows:
 
 $$g_{j,k} = \bar{o} + \alpha \tilde{f}'_j +\gamma f'_{j,k}$$ 
 
@@ -111,15 +164,15 @@ $$\gamma = \sqrt{1 - \rho^2} \frac{\sigma_o}{\sigma} $$
 
 with $\rho$ denoting the correlation between the observations o and the ensemble mean forecast $\tilde{f}$, $\sigma_o$ is the observed standard deviation, $\sigma_{\tilde{f}}$ is the standard deviation of the ensemble mean forecast, and $\sigma$ is the mean ensemble standard deviation (mean ensemble spread). 
 
-As noted by Siegert et al. (2015), such regression-corrected forecasts are systematically overconfident for out of sample re-calibration due to sampling errors causing a negative bias in forecast signal variance. Therefore, we adjust the CCR spread calibration to take into account the effect of uncertainty in the signal calibration (parameter α) on the spread calibration (γ). Following Siegert et al. (2015), the adjusted parameter $\gamma_{corr,i,j}$ for forecast $j$ at lead time $i$ is expressed as follows:
+As noted by @Siegert2015, such regression-corrected forecasts are systematically overconfident for out of sample re-calibration due to sampling errors causing a negative bias in forecast signal variance. Therefore, we adjust the CCR spread calibration to take into account the effect of uncertainty in the signal calibration (parameter α) on the spread calibration (γ). Following @Siegert2015, the adjusted parameter $\gamma_{corr,i,j}$ for forecast $j$ at lead time $i$ is expressed as follows:
 
-$$\gamma_{corr,i,j} = \gamma \sqrt{1 + 1/n + \frac{\tilde{f}'_{i,j}^2}{\sum_j \tilde{f}'_{i,j}^2}}$$
+$$\gamma_{corr,i,j} = \gamma \sqrt{1 + 1/n + \frac{\tilde{f}_{i,j}'^2}{\sum_j \tilde{f}_{i,j}'^2}}$$
 
 The additional spread inflation to account for uncertainties in signal calibration is applied both for the recalibration of daily and seasonal average quantities. 
 
 # Verification
 ## Verification metrics
-To validate the bias corrected CII forecasts, we use a small set of forecast verification metrics for probabilistic and deterministic forecasts. We focus on the continuous ranked probability score (CRPS) and its skill score. The CRPS is the integral of the Brier score for all thresholds and the CRPS for a deterministic forecast is equivalent to the mean absolute error (Hersbach, 2000). 
+To validate the bias corrected CII forecasts, we use a small set of forecast verification metrics for probabilistic and deterministic forecasts. We focus on the continuous ranked probability score (CRPS) and its skill score. The CRPS is the integral of the Brier score for all thresholds and the CRPS for a deterministic forecast is equivalent to the mean absolute error [@Hersbach2000]. 
 
 $$CRPS = \int \left[ P_f(x) - P_o(x) \right]\, \mathrm{d}x$$
 
@@ -130,10 +183,10 @@ $$P_f(x) = \int_{-\infty}^x \rho{y}\, \mathrm{d}y$$
 is the forecast probability for an arbitrary threshold $x$ and 
 
 $$P_o(x) = H(x - x_o ) = 
-  \begin{cases}
-    0 & \text{if } x < x_o\\
-    1 & \text{if } x \ge x_o\\
-  \end{cases}$$
+\begin{cases}
+0 & \text{if } x < x_o\\
+1 & \text{if } x \ge x_o\\
+\end{cases}$$
 
 is the corresponding observed probability (either zero or one). For each forecast, the CRPS hence measures the area between the cumulative distribution of the forecasts and the observations. The CRPS is thus sensitive to both calibration and sharpness of the forecast, where reliable and sharper forecasts result in lower CRPS on average. The corresponding skill score then compares the CRPS of the forecasting system with the CRPS of the reference. The continuous ranked probability skill score (CRPSS) is thus defined as
 
@@ -141,78 +194,280 @@ $$CRPSS=1- \frac{CRPS}{CRPS_{ref}}$$
 
 CRPSS ranges from minus infinity to 1 with CRPSS larger than zero indicating that the forecast performs better (in CRPS terms) than the reference and a CRPSS of one resulting for a perfect deterministic forecast. Throughout the manuscript we use different forecasts as the reference, if the reference forecast is not specified in particular, however, we will use a climatological forecast as the reference forecast. The climatological forecast is a probabilistic forecast for which each of the past years from the verifying observations is treated as equally likely for each forecast.
 
-In addition to the CRPS and its skill score, we also use the spread to error ratio to assess the calibration of the ensemble forecasts. Ensemble forecasts are reliable if the mean squared error (of the ensemble mean) is identical to the average intra-ensemble variance (Weigel et al., 2009). In addition, we complement the analysis with verification metrics for deterministic forecasts including the correlation and the root mean square difference between the ensemble mean CII and the verifying observations. 
+In addition to the CRPS and its skill score, we also use the spread to error ratio to assess the calibration of the ensemble forecasts. Ensemble forecasts are reliable if the mean squared error (of the ensemble mean) is identical to the average intra-ensemble variance [@Weigel2009a]. In addition, we complement the analysis with verification metrics for deterministic forecasts including the correlation and the root mean square difference between the ensemble mean CII and the verifying observations. 
 
 ## Calibration and Verification Strategy
-To avoid in-sample verification, we adopt a realistic forward calibration for which the calibration for forecast year $j=J$ only includes information from previous years (i.e. $j=1 \ldots J-1$). Using a realistic forward calibration strategy, the calibration of the first years of the forecasts would be strongly influenced by the small sample of re-forecasts to estimate the calibration. Therefore we only calibrate years 16 to 34 in forward mode and adopt a backward calibration for the years 1 to 15 for which only years following the forecast are used for calibration. Such a verification strategy results in considerably lower skill compared to in-sample validation (reflecting potential skill) and also results in slightly lower skill compared to calibration using cross-validation. In contrast to a cross-validation approach, the forward calibration strategy adopted here allows us to assess the effect of a calibration of the time trend in the bias in a predictive, out-of-sample context.
+To avoid in-sample verification, we adopt a realistic forward calibration for which the calibration for forecast year $j=J$ only includes information from previous years (i.e. $j=1 \ldots J-1$). Using this forward calibration strategy, the calibration of the first years of the forecasts would be strongly influenced by the small sample of re-forecasts to estimate the calibration. Therefore we only calibrate years 18 to 34 in forward mode and adopt a backward calibration for the years 1 to 17 for which only years following the forecast are used for calibration. Such a verification strategy results in considerably lower skill compared to in-sample calibration (reflecting potential skill) and also results in slightly lower skill compared to calibration using cross-validation due to the reduced sample size for calibration. In contrast to a cross-validation approach, the forward calibration strategy adopted here allows us to assess the effect of a calibration of the time trend in the bias in a predictive, out-of-sample context.
 
-# Results and discussion
-## Calibration strategies
-In Figure 1, we illustrate the effect of different calibration strategies using seasonal mean temperature forecasts for land grid boxes for two regression-based calibration methods, namely the simple debias and the sophisticated all method (without recalibration of the daily data), and quantile mapping.  For both calibration methods, we find that the in-sample calibration leads to the largest reduction in RMSE and to the highest improvement in CRPSS. Using the calibration methods in cross-validation or forward out-of-sample mode leads to slightly lower reductions in RMSE and increases in CRPSS compared with the in-sample calibration. CRPSS is lowest for the 10-year block cross-validation, and highest (among the out-of-sample approaches) for the leave-one-out cross-validation. It is important to note, that we do not adopt the corresponding out-of-sample protocol for the climatological reference forecast. Thereby, the CRPS of the reference forecast is biased low and thus the skill of the actual forecast is biased low. If one were to adopt the out-of-sample protocol also for the reference forecast, then generally the CRPSS improves beyond what is found for the in-sample calibrated forecast, as the negative bias in CRPS is stronger for the reference forecast than the actual forecast due to the smaller sample size of the reference (not shown). To facilitate comparison, however, we do not adopt an out-of-sample protocol for the reference, but note instead that our estimates of predictive skill are conservative and actual predictive skill is likely higher.
-[BJ4]
-
-Figure 1: Box and whisker plots of the correlation (a, b), RMSE (c, d) and the CRPSS (e, f) of seasonal mean temperature forecasts with daily calibration using different calibration strategies. No daily calibration is shown in grey, in sample calibration (in green), leave-one-out and 10-year moving block cross-validation in blue, and realistic forward calibration in magenta. Calibration strategies are assessed for boreal summer (a, c, and e) and winter (b, d, and f) and for the debias and all regression-based calibration methods and for quantile mapping.[BJ5]
-
-In contrast, correlation is unaffected when applying simple calibration methods in in-sample mode, but improvements in correlation may be found when more complex calibration methods (e.g. all in Figure 1) are used. Correlation, on the other hand, is reduced compared to using no calibration when calibration is applied in out-of-sample mode. This effect is strongest for the 10-year block cross-validation and weakest for the leave-one-out cross-validation with the forward calibration falling in between the two. The degradation of correlation skill with out-of-sample calibration is well known (Gangstø, Weigel, Liniger, & Appenzeller, 2013)[BJ6] and is related to the leakage of information from the training data to the verification sample (Storch and Zwiers, 1999).
+# Results
 
 ## The effect of daily calibration
-* Show EnsRmse and CRPSS for the various indices and calibration methods
-* Show spatial pattern of debias for tas and DD10
 
-First we compare the calibration methods using the root mean square error of the ensemble mean (RMSE). To summarize, we present box and whisker plots of the distribution of RMSE for all grid boxes over land (see Figure 2). Compared with CII forecasts derived from direct model output, daily calibration improves the CII forecasts. The reduction in RMSE is strongest for the seasonal mean temperature (tas) and heating or cooling degree days (HDD/CDD) and weakest for the inter-diurnal temperature variability (ITV). For ITV and for the relative degree days (DD10 and DD02), daily recalibration – that is the adjustment of the ensemble spread during the daily calibration – decreases the RMSE and thus improves the forecast. Apart from the effect of daily recalibration, the reduction in RMSE with calibration is largely insensitive to the choice of daily calibration method for all CIIs but DD10 and DD02. For these CIIs, the conditionalRecal method leads to the largest decreases in RMSE. The differences between the calibration methods, however, are slight and probably not significant.
+To illustrate the effect of daily calibration, we show the CRPSS of seasonal mean temperature (tas) and the accumulated excceedance of the daily 90th percentile (PDD90) in Figure \@ref(fig:daily-calibration-spatial). Skill of seasonal mean temperature vastly improves when the daily temperatures are calibrated (Figure \@ref(fig:daily-calibration-spatial)c,e,g compared to Figure \@ref(fig:daily-calibration-spatial)a). The choice of daily calibration method is of minor importance: quantile mapping (Figure \@ref(fig:daily-calibration-spatial)c) and the regression based calibration methods (de-biasing and all, Figure \@ref(fig:daily-calibration-spatial)e,g) result in comparable CRPSS for seasonal mean temperature.
 
-The spatial pattern of reductions and increases in RMSE for accumulated threshold exceedances is shown in Error! Reference source not found.. We only show results for mean de-biasing, as the results for the other daily calibration methods are qualitatively similar. Daily calibration leads to a general improvement in mean square error terms in boreal winter (DJF). The improvement is strongest over tropical and subtropical land areas with the exception of equatorial western Africa. RMSE reductions and increases with daily calibration are small elsewhere in winter. In contrast, daily calibration in out-of-sample mode leads to a weak increase in RMSE in most areas in summer (JJA). 
+```{r daily-calibration-spatial, fig.width=6, fig.height=7, fig.cap="CRPSS of PDD90 in summer (JJA) from forecasts initialized in May derived from direct model output (a), and forecasts bias corrected with daily quantile mapping (b), mean de-biasing (c), and the all method (d, see text)."}
+sfilt <- filter(slong, lsm > 0.5, lat > -60,
+               score %in% c("FairCrpss", "FairCrpss.sigma"),
+               index %in% c("tas", "PDD90"),
+               initmon == '05',
+               !ccr) 
 
-In the following, we also present the correlation of the calibrated forecast ensemble mean with the verifying observations (Error! Reference source not found.). Calibration of daily time series decreases correlation in general with the decrease being strongest for the most sophisticated calibration method (here conditional bias). The degradation of correlation through calibration is an effect of the estimation uncertainty of calibration parameters in the out-of-sample calibration. In general, this effect is stronger the more parameters have to be estimated in the calibration.
 
-Finally, we assess the reliability of calibrated forecasts of seasonal CIIs. In Error! Reference source not found., we present the spread-to-error ratio of the seasonal CII forecasts. A spread to error ratio of 1 is a necessary condition for forecasts to be reliable.[BJ7] Spread to error ratios larger than one indicates forecasts that are over-dispersive, whereas spread to error ratios smaller than one indicate forecasts that are over-confident. 
+layout(rbind(cbind(1:4, 5:8), 9), height=c(rep(5,4), lcm(0.5)))
+par(mar=c(0.5, 0.5, 2, 0.5), oma=c(2,0,0,0), cex.axis=1, cex.lab=1.2)
+slev <- c(-1e4, -100, -10, -1, -0.5, 0, seq(0.1, 0.4, 0.1), 1)
+scol <- mchcol(n=length(slev) - 1)
+for (tind in c("tas", "PDD90")){
+  j <- 0
+  for (tmethod in c("none", "fastqqmap-forward", "smooth-forward", "comb-forward")){
+    j <- j+1
+    ssub <- filter(sfilt, method == tmethod, index == tind)
+    
+    plot_scores(filter(ssub, score == 'FairCrpss'), 
+                dpath=getwd(), ylim=c(-60, 90),
+                colours=scol, levels=slev)
+    map("lakes", add=T)
+    points(lat ~ lon, 
+           data=filter(spread(ssub, score, value), 
+                       FairCrpss > qnorm(0.9)*FairCrpss.sigma),
+           pch='.')
+    if (j == 1) points(lat ~ lon, data=filter(lola.points, name %in% c("congo", "amazon")), cex=1.4)
+    
+    axis(3, at=par("usr")[1], 
+         paste0(letters[2*j - (tind == 'tas')*1], ') ', tind, ', ',
+                ifelse(tmethod == 'none', 
+                       "no bias correction (direct model output)", 
+                       paste0("daily calibration with ", relabeller(tmethod)))),
+         hadj=0, line=-0.5, tick=FALSE, cex.axis=par('cex.lab'))
+  }
+  
+}
+par(mar=rep(0.5, 4))
+colourbar(levels=slev, colours=scol, units='CRPSS', 
+          side=1, cex=par("cex.axis"))
 
-In general, the uncalibrated forecasts (red boxes in Error! Reference source not found.) are over-confident except for accumulated deviations from the 2nd percentile (DD02) in winter (DJF). Except for ITV, daily calibration increases the spread to error ratio and thus counters the over-confidence found in uncalibrated forecasts. For accumulated threshold exceedances, however, daily calibration results in over-dispersive (under-confident) forecasts in particular for exceedances from the more extreme percentiles (DD02 and DD05 respectively). 
+```
 
-In contrast to the other CIIs, daily calibration only marginally improves the spread to error ratio of ITV forecasts. In addition, daily calibration using the conditional method generates ITV forecasts that are even more over-confident (lower spread to error ratio) than the uncalibrated forecasts.
+Daily calibration also improves the predictive skill (CRPSS) of forecasts of PDD90 (Figure \@ref(fig:daily-calibration-spatial)d,f,h compared to \@ref(fig:daily-calibration-spatial)b). In contrast to seasonal mean temperature, the choice of daily calibration method matters for skill of forecasts of PDD90. CRPSS of PDD90 forecasts calibrated using quantile mapping (Figure \@ref(fig:daily-calibration-spatial)d) is generally higher than that of regression-based daily calibration methods (Figure \@ref(fig:daily-calibration-spatial)f,h). Of the regression-based daily calibration methods, the more comprehensive method (all, Figure \@ref(fig:daily-calibration-spatial)h) leads to slightly higher CRPSS than simple mean de-biasing (Figure \@ref(fig:daily-calibration-spatial)f).
 
-## Daily and seasonal recalibration
+Also, we note that CRPSS for PDD90 is generally higher in regions that show positive CRPSS for seasonal mean temperature. For quantile mapping, the spatial pattern of CRPSS for seasonal mean temperature corresponds very well with that for PDD90 (Figure \@ref(fig:daily-calibration-spatial)c,d). In most regions, CRPSS of PDD90 is comparable to the CRPSS of seasonal mean temperature. Elsewhere CRPSS is close to zero indicating that the calibrated PDD90 forecasts are as accurate a constant climatological forecast derived from the observations. For the regression-based calibration methods (\@ref(fig:daily-calibration-spatial)f,h), there are multiple regions where calibration of the ensemble mean appears to be insufficient and consequently the CRPSS of PDD90 is negative. 
+
+In \@ref(fig:example), we show the verifying observations and forecast time series for two locations in the tropics that illustrate some of the challenges when calibrating seasonal forecasts. The forecasts underestimate boreal summer (JJA) seasonal mean temperature in the Amazon at `r ap <- filter(lola.points, name == 'amazon') ; paste0(ap$lat, 'N, ', ap$lon, 'W')` by about 1 C (\@ref(fig:example)a) and consequently strongly underestimate PDD90 (\@ref(fig:example)b). All the daily bias correction methods reduce the mean bias and lead to significant improvements in CRPSS of seasonal mean temperature and PDD90 (see also \@ref(fig:daily-calibration-spatial)). While CRPSS of PDD90 with quantile mapping is the highest, the differences between the three bias correction methods are not significant. 
+
+```{r example,fig.width=8,fig.height=9,fig.cap="Time series of JJA seasonal mean temperature and PDD90 forecasts from direct model output (red), and calibrated with quantile mapping (green), de-biasing (turquoise) and the all method (purple) for two points in the Amazon and the Congo respectively. The vertical bars show the 10th to the 90th percentile range of the 51-member forecasts, the horizontal black lines are the verifying observations (ERA Interim)."}
+
+suppressMessages({
+  df.out <- df.out %>%
+    mutate(mn = ifelse(mn > 200, mn - 273.15, mn),
+           mn.obs = ifelse(mn.obs > 200, mn.obs - 273.15, mn.obs))
+  
+  df.obs <- df.out %>%
+    ungroup() %>%
+    filter(ensi == 1) %>%
+    select(everything(), -one_of(c("mn", "mn.anom", "pdd90", "pdd90.anom", "ensi"))) %>%
+    rename(mn = mn.obs, pdd90=pdd90.obs)
+  
+  df.quant <- select(df.out, -grep("obs", names(df.out))) %>% 
+    gather(key="index", value="value", mn:pdd90.anom) %>%
+    group_by(method, index, name, lon, lat, year) %>%
+    summarise(min = min(value),
+              q10 = quantile(value, 0.1, type=8),
+              q50 = median(value),
+              q90 = quantile(value, 0.9, type=8),
+              max = max(value)) %>% 
+    left_join(df.obs %>% 
+                gather(index, obs, mn:pdd90))
+})
+
+labs <- c(`amazon.mn` = 'a) Seasonal mean temperature in the Amazon', 
+          `amazon.pdd90` = 'b) PDD90 in the Amazon', 
+          `congo.mn` = 'c) Seasonal mean temperature in the Congo', 
+          `congo.pdd90` = 'd) PDD90 in the Congo')
+
+mylab <- as_labeller(labs, multi_line=FALSE)
+
+mms <- unique(df.out$method)
+sfilt <- filter(df.quant, name %in% c("amazon", "congo"),
+              method %in% mms[-grep("Recal", mms)],
+              index %in% c("mn", "pdd90")) %>%
+  mutate(nfacet = paste(name, index, sep='.'))
+
+ggplot(sfilt,
+       aes(x=year, xend=year, colour=method)) + 
+  geom_vline(xintercept=1997.5, lty=2) + 
+  geom_linerange(aes(ymin=q10, ymax=q90), 
+                 position=position_dodge(width=0.6),
+                 size=1) + 
+  geom_segment(aes(x=year - 0.3, xend=year + 0.3, y=obs, yend=obs), colour=1) +
+  facet_wrap( ~ nfacet, nrow=4, scales = 'free_y',
+              labeller = mylab) + 
+  theme_bw() + 
+  theme(legend.justification = c(1,0),
+        legend.position = c(1,0.77),
+        legend.direction = 'horizontal',
+        legend.title = element_blank(),
+        legend.key = element_blank(),
+        legend.background = element_rect(colour='grey'),
+        strip.text.x = element_text(hjust = 0), 
+        strip.background = element_rect(fill=NA, colour=NA)) + 
+  labs(x="", y="seasonal mean temperature / PDD90")
+
+```
+
+
+In contrast, the mean bias in JJA mean temperature in the Congo at `r ap <- filter(lola.points, name == 'congo') ; paste0(ap$lat, 'N, ', ap$lon, 'W')` is small (\@ref(fig:example)c). The forecasts, however, considerably underestimate the warming trend over the past 34 years in that area. Consequently, both quantile mapping and mean de-biasing only marginally improve forecast quality (as measured by the CRPSS) compared to the direct model output. When a linear time trend in the bias is taken into account, the forecast skill is greatly improved (see also \@ref(fig:daily-calibration-spatial)h). The uncalibrated forecasts not only underestimate the time trend in seasonal mean temperature, they also overestimate daily variability (not shown). PDD90 is therefore overestimated. For PDD90, quantile mapping leads to the largest improvements in forecast skill, whereas PDD90 from calibrated daily temperature series using the  mean de-biasing and all method is still generally overestimated due to the overestimation of daily variability in the uncalibrated forecasts.
+
+To get a more comprehensive overview of the advantages and disadvantages of the different daily calibration methods, we present the area-weighted distribution of grid point correlation and CRPSS in Figure \@ref(fig:daily-calibration). Correlation of seasonal mean temperatures is generally reduced with daily calibration due to the out-of-sample calibration protocol and the corresponding information leakage [@VonStorch1999;@Gangstø2013]. The positive effect of the daily calibration compensates in some cases for the negative effect of the information leakage (e.g. for the all method in summer, purple box and whiskers in \@ref(fig:daily-calibration)a). For the various indices, this effect is even more pronounced. Whereas on average, correlation of forecasts calibrated using quantile mapping (green bars in Figure \@ref(fig:daily-calibration)a,b) is always lower than the correlation of the forecasts from the uncorrected forecast (grey bars), in some cases, such as CDD and PDD90 in JJA for the all method (purple bars), the regression-based daily calibration methods compensate for the loss of correlation from the out-of-sample protocol. 
+
+```{r daily-calibration,fig.cap="Distribution of correlation (top) and CRPSS (bottom) for CII derived from seasonal forecasts for summer (JJA, initialized in May, left panels) and winter (DJF, initialized in Nov., right panels).", fig.width=8, fig.height=6}
+
+sfilt <- filter(slong, !ccr, lsm > 0.5, lat > -60,
+                method %in% c("none", "fastqqmap-forward", "smooth-forward", "comb-forward"),
+                score %in% c("EnsCorr", "FairCrpss")) %>%
+  mutate(value2 = ifelse(score == 'FairCrpss', 
+                         pmax(value, tanh(value)), value), 
+         nfacet = paste(score, initmon, sep='.'))
+
+
+methcols <- c(grey(0.6), hcl(rep(c(120,240,280), each=2), l=c(60,80), c=c(70,50)))
+names(methcols) <- c("none", 
+                     outer(c("-forward", "Recal-forward"), c("fastqqmap", "smooth", "comb"), 
+                           function(x,y) paste0(y,x)))
+
+mylab <- c(EnsCorr.05="a) Correlation in boreal summer (JJA, May init.)",
+           EnsCorr.11="b) Correlation in boreal winter (DJF, Nov. init.)",
+           FairCrpss.05 = "c) Transformed CRPSS in boreal summer (JJA, May init.)", 
+           FairCrpss.11 = 'd) Transformed CRPSS in boreal winter (JJA, Nov. init.)')
+
+ggplot(filter(sfilt, is.finite(value2)), aes(x=index, y=value2, fill=method)) + 
+  facet_wrap(~ nfacet, scales="free_x", 
+             labeller=as_labeller(mylab), ncol=2) +
+  geom_hline(yintercept=0, lty=2) + 
+  geom_boxplot(aes(weight = cos(lat / 180*pi)), outlier.size=0.6) + 
+  scale_fill_manual(breaks=names(methcols), values=methcols, 
+                    labels=relabeller(names(methcols))) + 
+  theme_bw() + 
+  theme(legend.justification = c(1,0),
+        legend.position = c(1,0.55),
+        legend.direction = 'horizontal',
+        legend.title = element_blank(),
+        legend.key = element_blank(),
+        legend.background = element_rect(colour='grey'),
+        strip.text.x = element_text(hjust = 0), 
+        strip.background = element_rect(fill=NA, colour=NA)) + 
+  labs(y="", x="")
+
+
+
+## plot_boxplot(sfilt, 
+##             group1="index", group="method", weight=TRUE)
+```
+
+The continuous ranked probability skill score is negative for all indices at most grid boxes without daily calibration (grey box and whiskers in \@ref(fig:daily-calibration)c,d). All daily calibration lead to an improvement in CRPSS. For seasonal mean temperature, the improvements are largest for the all method in summer (JJA, \@ref(fig:daily-calibration)c) and the quantile mapping in winter (DJF, \@ref(fig:daily-calibration)d). For ITV and the degree day indices, daily calibration with quantile mapping generally leads to the most accurate forecasts as measured by CRPSS (green box and whiskers in \@ref(fig:daily-calibration)c,d). The difference between the daily calibration methods is most pronounced for the accumulated exceedances of percentile-based thresholds (i.e. PDD90/98 and NDD10/02). 
+
+
+## Daily Calibration Versus Seasonal Calibration of the Index Forecast
 * Show one example of daily recalibration (i.e. show the bias and spread to error ratio for a daily time series) and contrast this with the s2e of the seasonal quantities
 * Compare out of sample daily calibration vs out-of-sample daily calibration + recalibration (should be much the same for most methods except fastqqmap)
 * Compare daily recalibration vs daily calibration + recalibration
 
+<!--
+```{r recalibration-overview, fig.cap='Flowchart of possible recalibration strategies'}
+grViz("
+digraph recalibration {
+  # graph, node, and edge definitions
+  graph [compound = true, nodesep = .25, ranksep = .5,
+         color = crimson, fontname = Helvetica, fontcolor=crimson]
+
+  node [fontcolor = darkslategray,
+        color = darkslategray, fontname = Helvetica]
+
+  edge [color = darkslategrey, arrowtail = none]
+
+  subgraph cluster0 {
+      node [fixedsize = true, width = 1.5, shape=rectangle]
+      'none'
+      'calibration'
+      'recalibration'
+      label = '(Re)calibration of daily input'
+  }
+
+  subgraph cluster1 {
+      node [fixedsize = true, width =1.5, shape=rectangle]
+      'no CCR'
+      'CCR'
+      label = 'Recalibration of index'
+  }
+
+
+
+  'Direct model output'                         [width = 3]
+  'compute index'                               [width = 5.25, shape = rectangle]
+  'Index forecast'                              [width = 3]
+  'Direct model output' -> 'none'
+  'Direct model output' -> 'calibration'
+  'Direct model output' -> 'recalibration'
+   none -> 'compute index'
+   calibration -> 'compute index'
+   recalibration -> 'compute index'
+   'compute index' -> 'no CCR'
+   'compute index' -> 'CCR'
+   'no CCR' -> 'Index forecast'
+   'CCR' -> 'Index forecast'
+  
+  
+
+}
+")
+```
+-->
+
 So far, we have only presented forecasts derived from (un)calibrated daily temperature time series. Next, we assess the effect of an additional re-calibration on the time series of seasonal indices. Such a recalibration may be necessary to correct biases in the CII time series that are not corrected for by the daily recalibration. Also, the re-calibration specifically corrects for under- or over-confidence in the forecasts by adjusting the ensemble spread of the target quantity (here the index).
 
-In terms of root mean square error (Figure 2) or mean CRPS (Error! Reference source not found.), we find that the re-calibration does not reduce the RMSE or mean CRPS much beyond what daily calibration achieves. However, we also find that in RMSE and mean CRPS terms, re-calibration on the seasonal index alone is enough as the distribution of re-calibrated seasonal indices is largely independent of the daily calibration method used previous to computing seasonal indices and previous to re-calibrating these. This is somewhat surprising as one may expect threshold based indices to be strongly dependent on systematic errors (that are largely removed by the daily calibration). In contrast to such expectations, we find that systematic biases affecting the daily temperature series do not affect the computation of seasonal CII in a way that cannot be corrected for using a re-calibration on the seasonal CII.
+In terms of root mean square error (Figure 2) or mean CRPS (Fig. XX), we find that the re-calibration does not reduce the RMSE or mean CRPS much beyond what daily calibration achieves. However, we also find that in RMSE and mean CRPS terms, re-calibration on the seasonal index alone is enough as the distribution of re-calibrated seasonal indices is largely independent of the daily calibration method used previous to computing seasonal indices and previous to re-calibrating these. This is somewhat surprising as one may expect threshold based indices to be strongly dependent on systematic errors (that are largely removed by the daily calibration). In contrast to such expectations, we find that systematic biases affecting the daily temperature series do not affect the computation of seasonal CII in a way that cannot be corrected for using a re-calibration on the seasonal CII.
 
-With regard to correlation with the ensemble mean, on the other hand, we find that re-calibration of the seasonal CII degenerates the correlation in general. As for the daily calibration, the reduction in correlation is stronger for the more sophisticated daily calibration methods and stronger still, if these are further re-calibrated. This is an effect of using an out-of-sample approach for calibration which affects correlation negatively in a similar manner as discussed in Gangstø et al. (2013) for leave-one-out cross-validation. 
+With regard to correlation with the ensemble mean, on the other hand, we find that re-calibration of the seasonal CII degenerates the correlation in general. As for the daily calibration, the reduction in correlation is stronger for the more sophisticated daily calibration methods and stronger still, if these are further re-calibrated. This is an effect of using an out-of-sample approach for calibration which affects correlation negatively in a similar manner as discussed in @Gangstø2013 for leave-one-out cross-validation. 
 
-The main advantage of a re-calibration on the seasonal CII, however, is the fact that re-calibration corrects the reliability of the forecasts. This is illustrated in Error! Reference source not found. using the spread to error ratio of the calibrated forecasts. When no re-calibration is applied, the calibrated forecasts are slightly over-dispersive (leftmost panels in Error! Reference source not found.) due to the reduction in systematic error without adjustment of the ensemble spread. An additional re-calibration (rightmost panels in Error! Reference source not found.), adjust also the forecast spread. This adjustment, however, tends to be too strong resulting in over-confident forecasts on average. This tendency to over-confident forecasts is again a consequence of the out-of-sample calibration approach. As shown in Tippett et al. (2014), estimation uncertainty in the parameters of regression-corrected forecasts leads to a positive bias in signal variance which in turn results in systematically over-confident forecasts. As the climate conserving re-calibration of Weigel et al. (2009) can be framed as a linear regression, the same systematic tendency to produce over-confident forecasts also applies for the CCR.
+
+```{r daily-recalibration, fig.cap="Distribution of the spread to error ratio for CII derived from seasonal forecasts for summer (JJA, initialized in May, left panels) and winter (DJF, initialized in Nov., right panels). Colours denote the daily (re)calibration approach, the seasonal indices in the lower panels have been recalibrated in addition to the daily calibration of the input parameters.", fig.width=8, fig.height=6}
+
+sfilt <- filter(slong, lsm > 0.5, lat > -60, 
+                score == 'FairSprErr')
+sfilt$method <- factor(as.character(sfilt$method), names(methcols))
+
+ggplot(filter(sfilt, is.finite(value), value > 0), 
+       aes(x=index, y=log(value), fill=method)) + 
+  facet_grid(ccr ~ initmon, scales="free_x", labeller=relabeller) +
+  coord_cartesian(ylim=c(-1.5,1)) + 
+  geom_hline(yintercept=0, lty=2) + 
+  geom_boxplot(aes(weight = cos(lat / 180*pi)), outlier.size=0.6) + 
+  scale_fill_manual(breaks=names(methcols), values=methcols, 
+                    labels=relabeller(names(methcols))) + 
+  theme_bw() + 
+  labs(y="", x="")
+
+```
+
+
+The main advantage of a re-calibration on the seasonal CII, however, is the fact that re-calibration corrects the reliability of the forecasts. This is illustrated in Fig. XX using the spread to error ratio of the calibrated forecasts. When no re-calibration is applied, the calibrated forecasts are slightly over-dispersive (leftmost panels in Fig. XX) due to the reduction in systematic error without adjustment of the ensemble spread. An additional re-calibration (rightmost panels in Fig. XX), adjust also the forecast spread. This adjustment, however, tends to be too strong resulting in over-confident forecasts on average. This tendency to over-confident forecasts is again a consequence of the out-of-sample calibration approach. As shown in @Tippett2014, estimation uncertainty in the parameters of regression-corrected forecasts leads to a positive bias in signal variance which in turn results in systematically over-confident forecasts. As the climate conserving re-calibration of @Weigel2009a can be framed as a linear regression, the same systematic tendency to produce over-confident forecasts also applies for the CCR.
+
+
+## Calibration strategies
+In Figure 1, we illustrate the effect of different calibration strategies using seasonal mean temperature forecasts for land grid boxes for two regression-based calibration methods, namely the simple debias and the sophisticated all method (without recalibration of the daily data), and quantile mapping.  For both calibration methods, we find that the in-sample calibration leads to the largest reduction in RMSE and to the highest improvement in CRPSS. Using the calibration methods in cross-validation or forward out-of-sample mode leads to slightly lower reductions in RMSE and increases in CRPSS compared with the in-sample calibration. CRPSS is lowest for the 10-year block cross-validation, and highest (among the out-of-sample approaches) for the leave-one-out cross-validation. It is important to note, that we do not adopt the corresponding out-of-sample protocol for the climatological reference forecast. Thereby, the CRPS of the reference forecast is biased low and thus the skill of the actual forecast is biased low. If one were to adopt the out-of-sample protocol also for the reference forecast, then generally the CRPSS improves beyond what is found for the in-sample calibrated forecast, as the negative bias in CRPS is stronger for the reference forecast than the actual forecast due to the smaller sample size of the reference (not shown). To facilitate comparison, however, we do not adopt an out-of-sample protocol for the reference, but note instead that our estimates of predictive skill are conservative and actual predictive skill is likely higher.
+
+In contrast, correlation is unaffected when applying simple calibration methods in in-sample mode, but improvements in correlation may be found when more complex calibration methods (e.g. all in Figure 1) are used. Correlation, on the other hand, is reduced compared to using no calibration when calibration is applied in out-of-sample mode. This effect is strongest for the 10-year block cross-validation and weakest for the leave-one-out cross-validation with the forward calibration falling in between the two. The degradation of correlation skill with out-of-sample calibration is well known [@VandenDool1987 @Barnston1993 @Gangstø2013] and is related to the leakage of information from the training data to the verification sample [@VonStorch1999].
 
 # Conclusions
 
-# Bibliography
-Allen, M. R., & Stott, P. a. (2003). Estimating signal amplitudes in optimal fingerprinting, part I: theory. Climate Dynamics, 21(5-6), 477–491. http://doi.org/10.1007/s00382-003-0313-9
-Cattiaux, J., Douville, H., Schoetter, R., Parey, S., & Yiou, P. (2015). Projected increase in diurnal and interdiurnal variations of European summer temperatures. Geophysical Research Letters, n/a–n/a. http://doi.org/10.1002/2014GL062531
-Christenson, M., Manz, H., & Gyalistras, D. (2006). Climate warming impact on degree-days and building energy demand in Switzerland. Energy Conversion and Management, 47(6), 671–686. http://doi.org/10.1016/j.enconman.2005.06.009
-Dee, D. P., Uppala, S. M., Simmons,  a. J., Berrisford, P., Poli, P., Kobayashi, S., … Vitart, F. (2011). The ERA-Interim reanalysis: configuration and performance of the data assimilation system. Quarterly Journal of the Royal Meteorological Society, 137(656), 553–597. http://doi.org/10.1002/qj.828
-Gangstø, R., Weigel, A., Liniger, M., & Appenzeller, C. (2013). Methodological aspects of the validation of decadal predictions. Climate Research, 55(3), 181–200. http://doi.org/10.3354/cr01135
-Gneiting, T., Raftery, A. E., Westveld, A. H., & Goldman, T. (2005). Calibrated Probabilistic Forecasting Using Ensemble Model Output Statistics and Minimum CRPS Estimation. Monthly Weather Review, 133(5), 1098–1118. http://doi.org/10.1175/MWR2904.1
-Hersbach, H. (2000). Decomposition of the Continuous Ranked Probability Score for Ensemble Prediction Systems. Weather and Forecasting, 15(5), 559–570. http://doi.org/10.1175/1520-0434(2000)015<0559:DOTCRP>2.0.CO;2
-Mahlstein, I., Spirig, C., Liniger, M. a., & Appenzeller, C. (2015). Estimating daily climatologies for climate indices derived from climate model data and observations. Journal of Geophysical Research: Atmospheres, 120(7), 2808–2818. http://doi.org/10.1002/2014JD022327
-Molteni, F., Stockdale, T., Balmaseda, M., Balsamo, G., Buizza, R., Ferranti, L., … Vitart, F. (2011). The new ECMWF seasonal forecast system ( System 4 ).
-Panofsky, H. A., & Brier, G. W. (1968). Some Applications of Statistics to Meteorology. University Park, PA, USA: The Pennsylvania State University.
-Schlenker, W., Hanemann, W. M., & Fisher, A. C. (2007). Water Availability, Degree Days, and the Potential Impact of Climate Change on Irrigated Agriculture in California. Climatic Change, 81(1), 19–38. http://doi.org/10.1007/s10584-005-9008-z
-Siegert, S., Sansom, P. G., & Williams, R. (2015). Parameter uncertainty in forecast recalibration. Quarterly Journal of the Royal Meteorological Society, n/a–n/a. http://doi.org/10.1002/qj.2716
-Themeßl, M., Gobiet, A., & Heinrich, G. (2012). Empirical-statistical downscaling and error correction of regional climate models and its impact on the climate change signal. Climatic Change, 112(2), 449–468. http://doi.org/10.1007/s10584-011-0224-4
-Tippett, M. K., DelSole, T., & Barnston, A. G. (2014). Reliability of Regression-Corrected Climate Forecasts. Journal of Climate, 27(9), 3393–3404. http://doi.org/10.1175/JCLI-D-13-00565.1
-Weigel, A. P., Liniger, M. a., & Appenzeller, C. (2009). Seasonal Ensemble Forecasts: Are Recalibrated Single Models Better than Multimodels? Monthly Weather Review, 137(4), 1460–1479. http://doi.org/10.1175/2008MWR2773.1
-Wilcke, R. A. I., Mendlik, T., & Gobiet, A. (2013). Multi-variable error correction of regional climate models. Climatic Change, 120(4), 871–887. http://doi.org/10.1007/s10584-013-0845-x
 
-# Appendix
-## Climate conserving recalibration in the framework of linear regression
+# Appendix: Climate conserving recalibration in the framework of linear regression {-}
 Here we demonstrate that the climate conserving recalibration (CCR) introduced by Weigel et al. (2009) can be formulated in a linear regression framework. To discuss this relationship we follow the notation used in Section 3, but drop reference to lead times and assume that both forecasts and observations are centered about zero. Thus the matrix $f_{j,k}$ contains the n forecast anomalies from m ensemble members, and the vector $o_j$ contains the $n$ verifying observation anomalies. Furthermore, $\bar{f_j}$ denotes the series of ensemble mean forecasts and $f_j = \bar{f_j} - 1/n \sqrt{\bar{f_j}}$ the ensemble mean forecast anomalies. The CCR is thus expressed using the adjustment parameter $r$ for the ensemble mean signal, and parameter $s$ for the intra ensemble spread 
 
 $$r = \rho_{f,o} \frac{\sigma_o}{\sigma_{\bar{f}}}$$
 
 and 
 
-$$s = sqrt{1 - \rho_{f,o}^2} \frac{\sigma_o}{\sigma_f}$$
+$$s = \sqrt{1 - \rho_{f,o}^2} \frac{\sigma_o}{\sigma_f}$$
 
 Where $\rho_{f,o}$ denotes the correlation between the ensemble mean forecast and the observations, $\sigma_o$ the standard deviation of the observations, $\sigma_{\bar{f}}$ the standard deviation of the ensemble mean, and $\sigma_f$ the square root of the time mean intra ensemble variance.
 
@@ -220,41 +475,16 @@ The adjustment parameter for the mean forecast, $r$, is equivalent to the slope 
 
 $$ \hat{\beta} = \frac{cov(o, \bar{f})}{\sigma_{\bar{f}}^2} = \frac{\rho_{f,o} \sigma_o \sigma_{\bar{f}}}{\sigma_{\bar{f}}^2} = \rho_{f,o} \frac{\sigma_o}{\sigma_{\bar{f}}}  = r$$
 
-The adjustment on the intra ensemble spread, on the other hand, is equivalent to the ratio of the standard deviation of the residuals of the regression, σ ̂_res, to the mean intra ensemble spread, σ_f.
-σ ̂_res^2=σ_o^2-β ̂^2 σ_f ̅^2=σ_o^2-ρ_(f,o)^2 σ_o^2=(1-ρ_(f,o)^2 ) σ_o^2=s^2 σ_f^2
-Thus, the climate conserving recalibration can be rephrased as a prediction using ordinary least squares regression. In that respect, CCR is closely related to other MOS approaches (e.g. Gneiting et al., 2005).
-From this linear regression perspective on CCR follows a straightforward adjustment of the spread correction s to account for uncertainty in the signal calibration r. Following linear regression theory, the prediction interval scales with √(1+(f(0)^2)/(∑f(j)^2 )) where f(0) is the forecast ensemble mean anomalies of the forecast that is to be spread corrected. Such an additional inflation has the property of increasing the spread for large forecast anomalies, that is for cases in which the signal calibration and its uncertainty have a large effect.
+The adjustment on the intra ensemble spread, on the other hand, is equivalent to the ratio of the standard deviation of the residuals of the regression, $\hat{\sigma}_{res}$, to the mean intra ensemble spread, $\sigma_f$.
+
+$$
+\hat{\sigma}_{res}^2 = \sigma_o^2 - \hat{\beta}^2 \sigma_{\bar{f}}^2 = \sigma_o^2 - \rho_{f,o}^2 \sigma_o^2 = (1 - \rho_{f,o}^2) \sigma_o^2 = s^2 \sigma_f^2
+$$
+
+Thus, the climate conserving recalibration can be rephrased as a prediction using ordinary least squares regression. In that respect, CCR is closely related to other MOS approaches [e.g. @Gneiting2005].
+From this linear regression perspective on CCR follows a straightforward adjustment of the spread correction s to account for uncertainty in the signal calibration r. Following linear regression theory, the prediction interval scales with $\sqrt{1 + \frac{f_0^2}{\sum_j f_j^2}}$ where $f_0$ is the forecast ensemble mean anomaly of the forecast the spread of which is to be corrected. Such an additional inflation has the property of increasing the spread for large forecast anomalies, that is for cases in which the signal calibration and its uncertainty have a large effect.
 
 
-Figures
-Figure 1: box plots of the root mean squared error of the calibrated forecast ensemble mean with respect to ERA Interim for various seasons, calibration methods on daily data, and the selected seasonal indices for grid boxes over land excluding Antarctica. In addition, RMSE is also shown after a climate-conserving recalibration has been applied to the seasonal indices (rightmost panels). The boxes extend from the lower to upper quartile of RMSE for land grid boxes, the thick vertical line denotes the median. Whiskers extend to the extremes of the distribution and RMSE that are further than 1.5 times the interquartile range (box height) away from the box are denoted by points. Please note that no area weighting has been performed to account for the latitudinally varying grid box size.	12
-Figure 2: RMSE of seasonal mean cumulative threshold exceedances (DD10, DD05, and DD02) with daily calibration using the mean de-biasing method divided by RMSE without daily calibration. Please note the logarithmic transformation on the fractions, that is, red indicates a reduction in RMSE with daily calibration (improvement).	13
-Figure 3: Box plots of the distribution of mean continuous ranked probability score (CRPS) over land (excluding Antarctica). Please note: In contrast to Figure 1, absolute CRPS instead of fractional CRPS compared to the uncalibrated forecasts are shown.	13
-Figure 4: as in Figure 2 but for correlation of the observed indices with the (calibrated) ensemble mean.	14
-Figure 5: as in Figure 1 but for the spread to error ratio. Spread to error ratios larger than unity indicate over-confident forecasts, spread to error ratios smaller than one indicate over-dispersion in the forecast.	15
-
-
-
-
-Figure 2: Box and whisker plots of the natural logarithm of the root mean squared error of the calibrated forecast ensemble mean with respect to the verifying observations (ERA Interim) for boreal summer (left panel) and winter (right panel) for a series of  daily calibration methods of increasing complexity. Methods that involve an additional daily recalibration (adjustment of ensemble spread) are shown in pale colours. The boxes extend from the lower to upper quartile of RMSE for land grid boxes, the thick vertical line denotes the median. Whiskers extend to the extremes of the distribution and RMSE that are further than 1.5 times the interquartile range (box height) away from the box are denoted by points. Please note that no area weighting has been performed to account for the latitudinally varying grid box size.
-
-
-Figure 3: as in Figure 2 but for the continuous ranked probability skill score. CRPSS larger than zero indicate that the calibrated forecast outperforms the climatological forecast.
-
-Figure 4: Box and whisker plot of CRPSS with an additional recalibration on the seasonally aggregated index compared to the results of the corresponding daily calibration method only. CRPSS larger than zero indicate additional skill through the recalibration of the seasonally aggregated index. Daily calibration methods with a recalibration on the daily data are shown in pale colours.
-
-Figure 5: Box and whisker plots of the spread to error ratio for various indices, boreal summer (left column) and winter (right column) and for daily calibration only (top row) and daily calibration and additional recalibration on the seasonally aggregated indices (bottom row). Daily calibration methods with a recalibration on the daily data are shown in pale colours.
-
-
-Figure 6: Box and whisker plot of the CRPSS of forecasts with daily recalibration compared to forecasts with the same calibration method but without daily recalibration as a reference. CRPSS larger than zero indicates that daily recalibration reduces the CRPS (and thus improves the forecast).
-
-[BJ1]Not all of the approaches are shown. Select a few (e.g. debias and all) for simplicity.
-[BJ2]Subsection of 3.1? Assumptions to estimate daily calibration parameters?
-[BJ3]The latter is a minor point, the former can be shown to be non-relevant. Describe procedure using Cochrane-Orchutt to account for auto-correlation and weighted OLS for non-homogeneous residual variances by lead time.
-[BJ4]Add legend
-[BJ5]Needs to be updated with appropriate, out-of-sample reference forecast.
-[BJ6]Barnston and van den dool
-[BJ7]Ref.
-1
+# References {-}
 
 
