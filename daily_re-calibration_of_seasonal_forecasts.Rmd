@@ -4,7 +4,8 @@ author: "Jonas Bhend, Mark Liniger"
 date: "July 29, 2016"
 output: 
   bookdown::html_document2: default
-  word_document: default
+  word_document: 
+    reference_docx: template.docx
 
 bibliography: ["bibliography.bib"]
 biblio-style: "apalike"
