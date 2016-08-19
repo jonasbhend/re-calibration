@@ -2,9 +2,9 @@
 title: "Best practice for the calibration of seasonal forecasts of climate indices"
 author: "Jonas Bhend, Mark Liniger"
 date: "July 29, 2016"
-knit: "bookdown::render_book"
 output: 
-  bookdown::html_document2
+  bookdown::html_document2: default
+  word_document: default
 
 bibliography: ["bibliography.bib"]
 biblio-style: "apalike"
