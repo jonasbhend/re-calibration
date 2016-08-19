@@ -3,6 +3,7 @@ old_versions
 .Rhistory
 *.pdf
 *.html
+daily*.docx
 figure
 data
 grids
